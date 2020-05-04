@@ -55,7 +55,9 @@ public:
         ID3D11ShaderResourceView *img,
         ID3D11ShaderResourceView *weight);
 
-    ID3D11ShaderResourceView *GetInnerAreaTexture() noexcept;
+    ID3D11Texture2D *GetInnerAreaTexture() noexcept;
+
+    ID3D11ShaderResourceView *GetInnerAreaTextureSRV() noexcept;
 
 private:
 
@@ -125,7 +127,8 @@ private:
 
     // inner area texture
 
-    ComPtr<ID3D11ShaderResourceView> innerAreaTexture_;
+    ComPtr<ID3D11Texture2D>          innerAreaTexture_;
+    ComPtr<ID3D11ShaderResourceView> innerAreaTextureSRV_;
 
     // constant buffer in weight shader
 

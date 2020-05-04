@@ -354,7 +354,7 @@ void MLAA::ComputeBlendingWeight(ID3D11ShaderResourceView *edge)
     DC_->PSSetSamplers(0, 1, pointSampler_.GetAddressOf());
     DC_->PSSetSamplers(1, 1, linearSampler_.GetAddressOf());
     DC_->PSSetShaderResources(0, 1, &edge);
-    DC_->PSSetShaderResources(1, 1, innerAreaTexture_.GetAddressOf());
+    DC_->PSSetShaderResources(1, 1, innerAreaTextureSRV_.GetAddressOf());
     DC_->PSSetConstantBuffers(0, 1, pixelSizeConstantBuffer_.GetAddressOf());
 
     // bind vertex buffer/input layout
@@ -448,9 +448,14 @@ void MLAA::PerformBlending(
     DC_->VSSetShader(nullptr, nullptr, 0);
 }
 
-ID3D11ShaderResourceView *MLAA::GetInnerAreaTexture() noexcept
+ID3D11Texture2D *MLAA::GetInnerAreaTexture() noexcept
 {
     return innerAreaTexture_.Get();
+}
+
+ID3D11ShaderResourceView *MLAA::GetInnerAreaTextureSRV() noexcept
+{
+    return innerAreaTextureSRV_.Get();
 }
 
 ComPtr<ID3D10Blob> MLAA::InitVertexShader(ID3D11Device *device)
@@ -649,9 +654,8 @@ void MLAA::InitInnerAreaTexture(
     initData.SysMemPitch      = width * sizeof(float) * 4;
     initData.SysMemSlicePitch = 0;
 
-    ComPtr<ID3D11Texture2D> tex;
     HRESULT hr = device->CreateTexture2D(
-        &texDesc, &initData, tex.GetAddressOf());
+        &texDesc, &initData, innerAreaTexture_.GetAddressOf());
     if(FAILED(hr))
         throw std::runtime_error("failed to create inner area texture");
 
@@ -662,7 +666,7 @@ void MLAA::InitInnerAreaTexture(
     srvDesc.Texture2D.MipLevels       = 1;
 
     hr = device->CreateShaderResourceView(
-        tex.Get(), &srvDesc, innerAreaTexture_.GetAddressOf());
+        innerAreaTexture_.Get(), &srvDesc, innerAreaTextureSRV_.GetAddressOf());
     if(FAILED(hr))
     {
         throw std::runtime_error(
