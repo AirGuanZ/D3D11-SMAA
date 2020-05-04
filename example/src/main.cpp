@@ -42,7 +42,6 @@ void run()
 
     auto mlaa = std::make_unique<agz::smaa::MLAA>(
         window.Device(), window.DeviceContext(),
-        16, 0.1f, agz::smaa::MLAA::Mode::Lum,
         window.GetClientSizeX(), window.GetClientSizeY());
 
     // for drawing img to screen
@@ -97,7 +96,6 @@ void run()
     {
         mlaa = std::make_unique<agz::smaa::MLAA>(
             window.Device(), window.DeviceContext(),
-            8, 0.1f, agz::smaa::MLAA::Mode::Lum,
             w, h);
 
         edgeTarget = std::make_unique<RenderTexture >();
@@ -227,7 +225,7 @@ void run()
         window.DeviceContext()->OMSetRenderTargets(
             1, edgeTarget->GetRenderTargetView().GetAddressOf(), nullptr);
 
-        mlaa->DetectEdgeWithLum(img.Get());
+        mlaa->detectEdge(img.Get());
 
         window.UseDefaultRenderTargetAndDepthStencil();
 
@@ -236,7 +234,7 @@ void run()
         window.DeviceContext()->OMSetRenderTargets(
             1, weightTarget->GetRenderTargetView().GetAddressOf(), nullptr);
 
-        mlaa->ComputeBlendingWeight(edgeTarget->GetShaderResourceView().Get());
+        mlaa->computeBlendingWeight(edgeTarget->GetShaderResourceView().Get());
 
         window.UseDefaultRenderTargetAndDepthStencil();
 
@@ -245,8 +243,8 @@ void run()
         window.DeviceContext()->OMSetRenderTargets(
             1, outputTarget->GetRenderTargetView().GetAddressOf(), nullptr);
 
-        mlaa->PerformBlending(
-            img.Get(), weightTarget->GetShaderResourceView().Get());
+        mlaa->blend(
+            weightTarget->GetShaderResourceView().Get(), img.Get());
 
         window.UseDefaultRenderTargetAndDepthStencil();
 
@@ -278,7 +276,8 @@ void run()
         {
             const int size = targetSize.min_elem();
             imm2d.DrawTextureP2(
-                { 0, 0 }, { size, size }, mlaa->GetInnerAreaTextureSRV());
+                { 0, 0 }, { size, size },
+                mlaa->_blendingWeight().innerAreaTextureSRV.Get());
         }
 
         // screenshot
@@ -320,7 +319,7 @@ void run()
             default:
                 imm2d.DrawTexture(
                     { -1, -1 }, { 1, 1 },
-                    mlaa->GetInnerAreaTextureSRV());
+                    mlaa->_blendingWeight().innerAreaTextureSRV.Get());
                 break;
             }
 
