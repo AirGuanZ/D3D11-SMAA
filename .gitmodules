@@ -1,0 +1,3 @@
+[submodule "example/lib/agz-utils"]
+	path = example/lib/agz-utils
+	url = https://github.com/AirGuanZ/agz-utils.git
