@@ -10,6 +10,7 @@
 #include <agz/utility/d3d11.h>
 
 #include <agz/smaa/mlaa.h>
+#include <agz/smaa/smaa.h>
 
 using namespace agz::d3d11;
 
@@ -37,12 +38,6 @@ void run()
         throw std::runtime_error("failed to initialize components for WIC");
     AGZ_SCOPE_GUARD({ CoUninitialize(); });
 #endif
-
-    // initialize mlaa
-
-    auto mlaa = std::make_unique<agz::smaa::MLAA>(
-        window.Device(), window.DeviceContext(),
-        window.GetClientSizeX(), window.GetClientSizeY());
 
     // for drawing img to screen
 
@@ -90,13 +85,37 @@ void run()
         window.setViewport(vp);
     };
 
+    // initialize mlaa
+
+    float edgeThreshold           = 0.1f;
+    float edgeLocalContrastFactor = 0.5f;
+    int maxSearchDistanceLen      = 8;
+
+    std::unique_ptr<agz::mlaa::MLAA> mlaa;
+    std::unique_ptr<agz::smaa::SMAA> smaa;
+
+    auto updateAA = [&]
+    {
+        mlaa = std::make_unique<agz::mlaa::MLAA>(
+            window.Device(), window.DeviceContext(),
+            targetSize.x, targetSize.y,
+            agz::mlaa::MLAA::EdgeDetectionMode::Lum,
+            edgeThreshold, maxSearchDistanceLen);
+
+        smaa = std::make_unique<agz::smaa::SMAA>(
+            window.Device(), window.DeviceContext(),
+            edgeThreshold, edgeLocalContrastFactor);
+    };
+
+    updateAA();
+
     // window resizing handler
 
     auto setTargetSize = [&](int w, int h)
     {
-        mlaa = std::make_unique<agz::smaa::MLAA>(
-            window.Device(), window.DeviceContext(),
-            w, h);
+        targetSize = { w, h };
+
+        updateAA();
 
         edgeTarget = std::make_unique<RenderTexture >();
         edgeTarget->Initialize(
@@ -118,8 +137,6 @@ void run()
             DXGI_FORMAT_R32G32B32A32_FLOAT,
             DXGI_FORMAT_R32G32B32A32_FLOAT,
             DXGI_FORMAT_R32G32B32A32_FLOAT);
-
-        targetSize = { w, h };
     };
 
     FunctionalEventHandler<WindowResizeEvent> windowResizeHandler(
@@ -179,6 +196,8 @@ void run()
         InnerAreaTexture = 4,
     };
 
+    bool useSMAA = false;
+
     int displayMode = AAImage;
 
     // mainloop
@@ -198,8 +217,30 @@ void run()
             if(ImGui::Button("load image file"))
                 imgFileBrowser.Open();
 
+            ImGui::SameLine();
+
             if(ImGui::Button("take screenshot"))
                 takeScreenshot = true;
+
+            ImGui::Checkbox("use SMAA", &useSMAA);
+
+            if(!useSMAA && ImGui::InputInt(
+                "search distance", &maxSearchDistanceLen))
+            {
+                maxSearchDistanceLen = (std::max)(0, maxSearchDistanceLen);
+                updateAA();
+            }
+
+            if(useSMAA && ImGui::InputFloat(
+                "local contrast factor", &edgeLocalContrastFactor))
+            {
+                edgeLocalContrastFactor = (std::max)(
+                    0.0f, edgeLocalContrastFactor);
+                updateAA();
+            }
+
+            if(ImGui::SliderFloat("edge threshold", &edgeThreshold, 0, 1))
+                updateAA();
 
             ImGui::RadioButton("Input  ", &displayMode, OriImage);
             ImGui::RadioButton("Output ", &displayMode, AAImage);
@@ -222,10 +263,17 @@ void run()
 
         // compute edge texture
 
+        const float TARGET_BKGD[4] = { 0, 0, 0, 0 };
+
         window.DeviceContext()->OMSetRenderTargets(
             1, edgeTarget->GetRenderTargetView().GetAddressOf(), nullptr);
+        window.DeviceContext()->ClearRenderTargetView(
+            edgeTarget->GetRenderTargetView().Get(), TARGET_BKGD);
 
-        mlaa->detectEdge(img.Get());
+        if(useSMAA)
+            smaa->detectEdge(img.Get());
+        else
+            mlaa->detectEdge(img.Get());
 
         window.UseDefaultRenderTargetAndDepthStencil();
 
@@ -233,8 +281,11 @@ void run()
 
         window.DeviceContext()->OMSetRenderTargets(
             1, weightTarget->GetRenderTargetView().GetAddressOf(), nullptr);
+        window.DeviceContext()->ClearRenderTargetView(
+            weightTarget->GetRenderTargetView().Get(), TARGET_BKGD);
 
-        mlaa->computeBlendingWeight(edgeTarget->GetShaderResourceView().Get());
+        if(!useSMAA)
+            mlaa->computeBlendingWeight(edgeTarget->GetShaderResourceView().Get());
 
         window.UseDefaultRenderTargetAndDepthStencil();
 
@@ -242,9 +293,12 @@ void run()
 
         window.DeviceContext()->OMSetRenderTargets(
             1, outputTarget->GetRenderTargetView().GetAddressOf(), nullptr);
+        window.DeviceContext()->ClearRenderTargetView(
+            outputTarget->GetRenderTargetView().Get(), TARGET_BKGD);
 
-        mlaa->blend(
-            weightTarget->GetShaderResourceView().Get(), img.Get());
+        if(!useSMAA)
+            mlaa->blend(
+                weightTarget->GetShaderResourceView().Get(), img.Get());
 
         window.UseDefaultRenderTargetAndDepthStencil();
 
@@ -317,9 +371,12 @@ void run()
                     weightTarget->GetShaderResourceView().Get());
                 break;
             default:
-                imm2d.DrawTexture(
-                    { -1, -1 }, { 1, 1 },
-                    mlaa->_blendingWeight().innerAreaTextureSRV.Get());
+                if(!useSMAA)
+                {
+                    imm2d.DrawTexture(
+                        { -1, -1 }, { 1, 1 },
+                        mlaa->_blendingWeight().innerAreaTextureSRV.Get());
+                }
                 break;
             }
 

@@ -1,8 +1,6 @@
 #pragma once
 
-#include <cassert>
 #include <cstring>
-#include <functional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -12,20 +10,15 @@
 #include <d3dcompiler.h>
 #include <d3d11.h>
 
-#define AGZ_SMAA_BEGIN namespace agz { namespace smaa {
-#define AGZ_SMAA_END   } }
-
-AGZ_SMAA_BEGIN
+namespace agz { namespace mlaa {
 
 using Microsoft::WRL::ComPtr;
 
-// ========= common =========
-
-class MLAACommon
+class Common
 {
 public:
 
-    MLAACommon(
+    Common(
         ID3D11Device        *device,
         ID3D11DeviceContext *deviceContext,
         int                  width,
@@ -47,9 +40,7 @@ public:
     ComPtr<ID3D11Buffer> pixelSizeConstantBuffer;
 };
 
-// ========= edge detection =========
-
-class MLAAEdgeDetection
+class EdgeDetection
 {
 public:
 
@@ -59,30 +50,28 @@ public:
         Lum
     };
 
-    explicit MLAAEdgeDetection(
+    explicit EdgeDetection(
         ID3D11Device *device,
         Mode          mode,
         float         threshold);
 
     void detectEdge(
-        const MLAACommon         &common,
+        const Common         &common,
         ID3D11ShaderResourceView *source) const;
 
     ComPtr<ID3D11PixelShader> pixelShader;
 };
 
-// ========= blending weight =========
-
-class MLAABlendingWeight
+class BlendingWeight
 {
 public:
 
-    MLAABlendingWeight(
+    BlendingWeight(
         ID3D11Device *device,
         int maxSearchDistanceLen);
 
     void computeBlendingWeight(
-        const MLAACommon         &common,
+        const Common         &common,
         ID3D11ShaderResourceView *edgeTexture) const;
 
     ComPtr<ID3D11PixelShader> pixelShader;
@@ -91,16 +80,14 @@ public:
     ComPtr<ID3D11ShaderResourceView> innerAreaTextureSRV;
 };
 
-// ========= blending =========
-
-class MLAABlending
+class Blending
 {
 public:
 
-    explicit MLAABlending(ID3D11Device *device);
+    explicit Blending(ID3D11Device *device);
 
     void blend(
-        const MLAACommon         &common,
+        const Common         &common,
         ID3D11ShaderResourceView *weightTexture,
         ID3D11ShaderResourceView *img) const;
 
@@ -113,7 +100,7 @@ class MLAA
 {
 public:
 
-    using EdgeDetectionMode = MLAAEdgeDetection::Mode;
+    using EdgeDetectionMode = EdgeDetection::Mode;
 
     MLAA(
         ID3D11Device        *device,
@@ -137,17 +124,17 @@ public:
         ID3D11ShaderResourceView *weightTexture,
         ID3D11ShaderResourceView *img) const;
 
-    MLAACommon         &_common        () noexcept { return common_;         }
-    MLAAEdgeDetection  &_edgeDetection () noexcept { return edgeDetection_;  }
-    MLAABlendingWeight &_blendingWeight() noexcept { return blendingWeight_; }
-    MLAABlending       &_blending      () noexcept { return blending_;       }
+    Common         &_common        () noexcept { return common_;         }
+    EdgeDetection  &_edgeDetection () noexcept { return edgeDetection_;  }
+    BlendingWeight &_blendingWeight() noexcept { return blendingWeight_; }
+    Blending       &_blending      () noexcept { return blending_;       }
 
 private:
 
-    MLAACommon         common_;
-    MLAAEdgeDetection  edgeDetection_;
-    MLAABlendingWeight blendingWeight_;
-    MLAABlending       blending_;
+    Common         common_;
+    EdgeDetection  edgeDetection_;
+    BlendingWeight blendingWeight_;
+    Blending       blending_;
 };
 
 
@@ -244,7 +231,7 @@ inline ComPtr<ID3D11Buffer> CreatePixelSizeConstantBuffer(
 
 // ========= shader sources =========
 
-const char *COMMON_VERTEX_SHADER_SOURCE = R"___(
+static const char *COMMON_VERTEX_SHADER_SOURCE = R"___(
 struct VSInput
 {
     float2 position : POSITION;
@@ -266,7 +253,7 @@ VSOutput main(VSInput input)
 }
 )___";
 
-const char *EDGE_DEPTH_SHADER_SOURCE = R"___(
+static const char *EDGE_DEPTH_SHADER_SOURCE = R"___(
 // #define EDGE_THRESHOLD XXX
 
 struct PSInput
@@ -286,26 +273,21 @@ float4 main(PSInput input) : SV_TARGET
         PointSampler, input.texCoord, 0);
     float d_left = DepthTexture.SampleLevel(
         PointSampler, input.texCoord, 0, int2(-1, 0));
-    float d_right = DepthTexture.SampleLevel(
-        PointSampler, input.texCoord, 0, int2(+1, 0));
     float d_top = DepthTexture.SampleLevel(
-        PointSampler, input.texCoord, 0, int2(0, -1));;
-    float d_bottom = DepthTexture.SampleLevel(
-        PointSampler, input.texCoord, 0, int2(0, 1));
+        PointSampler, input.texCoord, 0, int2(0, -1));
 
     // compute delta depth
 
-    float4 delta_d = abs(d.xxxx - float4(d_left, d_top, d_right, d_bottom));
-    
-    float4 is_edge = step(EDGE_THRESHOLD, delta_d);
-    if(dot(is_edge, 1) == 0)
-        discard;
+    float2 delta_d = abs(d.xx - float2(d_left, d_top));
 
-    return is_edge;
+    float2 is_edge = step(EDGE_THRESHOLD, delta_d);
+    if(is_edge.x == 0 && is_edge.y == 0)
+        discard;
+    return float4(is_edge, 0, 0);
 }
 )___";
 
-const char *EDGE_LUM_SHADER_SOURCE = R"___(
+static const char *EDGE_LUM_SHADER_SOURCE = R"___(
 // #define EDGE_THRESHOLD XXX
 
 struct PSInput
@@ -329,42 +311,27 @@ float diff_lum(float3 a, float3 b)
 
 float4 main(PSInput input) : SV_TARGET
 {
-    // sample depth texture
+    // sample texture
 
     float3 d = ImageTexture.SampleLevel(
         PointSampler, input.texCoord, 0);
     float3 d_left = ImageTexture.SampleLevel(
         PointSampler, input.texCoord, 0, int2(-1, 0));
-    float3 d_right = ImageTexture.SampleLevel(
-        PointSampler, input.texCoord, 0, int2(+1, 0));
     float3 d_top = ImageTexture.SampleLevel(
         PointSampler, input.texCoord, 0, int2(0, -1));
-    float3 d_bottom = ImageTexture.SampleLevel(
-        PointSampler, input.texCoord, 0, int2(0, +1));
 
     // compute delta lum
 
-    //float4 delta_d = abs(d.xxxx - float4(
-    //                                to_lum(d_left),
-    //                                to_lum(d_top),
-    //                                to_lum(d_right),
-    //                                to_lum(d_bottom)));
-
-    float4 delta_d = float4(
-                        diff_lum(d_left  , d),
-                        diff_lum(d_top   , d),
-                        diff_lum(d_right , d),
-                        diff_lum(d_bottom, d));
+    float2 delta_d = float2(diff_lum(d_left, d), diff_lum(d_top, d));
     
-    float4 is_edge = step(EDGE_THRESHOLD, delta_d);
-    if(dot(is_edge, 1) == 0)
+    float2 is_edge = step(EDGE_THRESHOLD, delta_d);
+    if(is_edge.x == 0 && is_edge.y == 0)
         discard;
-
-    return is_edge;
+    return float4(is_edge, 0, 0);
 }
 )___";
 
-const char *WEIGHT_SHADER_SOURCE = R"___(
+static const char *WEIGHT_SHADER_SOURCE = R"___(
 // #define EDGE_DETECTION_MAX_LEN
 
 struct PSInput
@@ -381,8 +348,8 @@ cbuffer PSConstant : register(b0)
 Texture2D<float4> EdgeTexture      : register(t0);
 Texture2D<float4> InnerAreaTexture : register(t1);
 
-SamplerState      PointSampler  : register(s0);
-SamplerState      LinearSampler : register(s1);
+SamplerState PointSampler  : register(s0);
+SamplerState LinearSampler : register(s1);
 
 float find_left_end(float2 center)
 {
@@ -534,7 +501,7 @@ float4 main(PSInput input) : SV_TARGET
 }
 )___";
 
-const char *BLENDING_SHADER_SOURCE = R"___(
+static const char *BLENDING_SHADER_SOURCE = R"___(
 struct PSInput
 {
     float4 position : SV_POSITION;
@@ -643,15 +610,12 @@ inline std::pair<float, float> ComputePixelInnerArea(
 
     if(xM <= x0)
         areaLeft = 0;
-
     if(xM >= x1)
         areaRight = 0;
 
     // left is higher than right
     if(yL < yR)
         return { areaRight, areaLeft };
-
-    // otherwise
     return { areaLeft, areaRight };
 }
 
@@ -871,7 +835,7 @@ inline std::vector<float> GenerateInnerAreaTexture(
 
 } // namespace detail
 
-inline MLAACommon::MLAACommon(
+inline Common::Common(
     ID3D11Device *device,
     ID3D11DeviceContext *deviceContext,
     int                  width,
@@ -974,16 +938,15 @@ inline MLAACommon::MLAACommon(
         device, width, height);
 }
 
-inline void MLAACommon::setFramebufferSize(int width, int height)
+inline void Common::setFramebufferSize(int width, int height)
 {
     pixelSizeConstantBuffer = detail::CreatePixelSizeConstantBuffer(
         D, width, height);
 }
 
-inline MLAAEdgeDetection::MLAAEdgeDetection(
+inline EdgeDetection::EdgeDetection(
     ID3D11Device *device, Mode mode, float threshold)
 {
-
     const std::string edgeThresholdStr =
         std::to_string(threshold);
 
@@ -1005,8 +968,8 @@ inline MLAAEdgeDetection::MLAAEdgeDetection(
         edgeShaderByteCode->GetBufferSize());
 }
 
-inline void MLAAEdgeDetection::detectEdge(
-    const MLAACommon &common, ID3D11ShaderResourceView *source) const
+inline void EdgeDetection::detectEdge(
+    const Common &common, ID3D11ShaderResourceView *source) const
 {
     // bind shader/texture/sampler
 
@@ -1049,7 +1012,7 @@ inline void MLAAEdgeDetection::detectEdge(
     common.DC->VSSetShader(nullptr, nullptr, 0);
 }
 
-inline MLAABlendingWeight::MLAABlendingWeight(
+inline BlendingWeight::BlendingWeight(
     ID3D11Device *device, int maxSearchDistanceLen)
 {
     // pixel shader
@@ -1116,8 +1079,8 @@ inline MLAABlendingWeight::MLAABlendingWeight(
     }
 }
 
-inline void MLAABlendingWeight::computeBlendingWeight(
-    const MLAACommon &common, ID3D11ShaderResourceView *edgeTexture) const
+inline void BlendingWeight::computeBlendingWeight(
+    const Common &common, ID3D11ShaderResourceView *edgeTexture) const
 {
     // bind shader/texture/sampler/constant buffer
 
@@ -1168,7 +1131,7 @@ inline void MLAABlendingWeight::computeBlendingWeight(
     common.DC->VSSetShader(nullptr, nullptr, 0);
 }
 
-inline MLAABlending::MLAABlending(
+inline Blending::Blending(
     ID3D11Device *device)
 {
     ComPtr<ID3D10Blob> blendingShaderByteCode = detail::CompileToByteCode(
@@ -1180,8 +1143,8 @@ inline MLAABlending::MLAABlending(
         blendingShaderByteCode->GetBufferSize());
 }
 
-inline void MLAABlending::blend(
-    const MLAACommon         &common,
+inline void Blending::blend(
+    const Common         &common,
     ID3D11ShaderResourceView *weightTexture,
     ID3D11ShaderResourceView *img) const
 {
@@ -1274,4 +1237,4 @@ inline void MLAA::blend(
     blending_.blend(common_, weightTexture, img);
 }
 
-AGZ_SMAA_END
+} } // namespace agz::mlaa
