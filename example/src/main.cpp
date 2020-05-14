@@ -25,6 +25,7 @@ void run()
 
     Window window;
     window.Initialize(window_desc);
+    window.Maximize();
 
     // initialize WIC
 
@@ -104,7 +105,9 @@ void run()
 
         smaa = std::make_unique<agz::smaa::SMAA>(
             window.Device(), window.DeviceContext(),
-            edgeThreshold, edgeLocalContrastFactor);
+            edgeThreshold, edgeLocalContrastFactor,
+            maxSearchDistanceLen,
+            targetSize.x, targetSize.y);
     };
 
     updateAA();
@@ -212,7 +215,7 @@ void run()
 
         bool takeScreenshot = false;
 
-        if(ImGui::Begin("MLAA", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        if(ImGui::Begin("MLAA"))
         {
             if(ImGui::Button("load image file"))
                 imgFileBrowser.Open();
@@ -286,6 +289,8 @@ void run()
 
         if(!useSMAA)
             mlaa->computeBlendingWeight(edgeTarget->GetShaderResourceView().Get());
+        else
+            smaa->computeBlendingWeight(edgeTarget->GetShaderResourceView().Get());
 
         window.UseDefaultRenderTargetAndDepthStencil();
 
@@ -297,8 +302,9 @@ void run()
             outputTarget->GetRenderTargetView().Get(), TARGET_BKGD);
 
         if(!useSMAA)
-            mlaa->blend(
-                weightTarget->GetShaderResourceView().Get(), img.Get());
+            mlaa->blend(weightTarget->GetShaderResourceView().Get(), img.Get());
+        else
+            smaa->blend(weightTarget->GetShaderResourceView().Get(), img.Get());
 
         window.UseDefaultRenderTargetAndDepthStencil();
 

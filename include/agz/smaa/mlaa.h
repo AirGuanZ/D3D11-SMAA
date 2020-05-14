@@ -20,12 +20,7 @@ public:
 
     Common(
         ID3D11Device        *device,
-        ID3D11DeviceContext *deviceContext,
-        int                  width,
-        int                  height);
-
-    void setFramebufferSize(
-        int width, int height);
+        ID3D11DeviceContext *deviceContext);
 
     ID3D11Device        *D;
     ID3D11DeviceContext *DC;
@@ -36,8 +31,6 @@ public:
 
     ComPtr<ID3D11SamplerState> pointSampler;
     ComPtr<ID3D11SamplerState> linearSampler;
-
-    ComPtr<ID3D11Buffer> pixelSizeConstantBuffer;
 };
 
 class EdgeDetection
@@ -68,7 +61,9 @@ public:
 
     BlendingWeight(
         ID3D11Device *device,
-        int maxSearchDistanceLen);
+        int           maxSearchDistanceLen,
+        int           width,
+        int           height);
 
     void computeBlendingWeight(
         const Common         &common,
@@ -84,10 +79,13 @@ class Blending
 {
 public:
 
-    explicit Blending(ID3D11Device *device);
+    explicit Blending(
+        ID3D11Device *device,
+        int           width,
+        int           height);
 
     void blend(
-        const Common         &common,
+        const Common             &common,
         ID3D11ShaderResourceView *weightTexture,
         ID3D11ShaderResourceView *img) const;
 
@@ -110,9 +108,6 @@ public:
         EdgeDetectionMode    mode                   = EdgeDetectionMode::Lum,
         float                edgeDetectionThreshold = 0.1f,
         int                  maxSearchDistanceLen   = 8);
-
-    void setFramebufferSize(
-        int width, int height);
 
     void detectEdge(
         ID3D11ShaderResourceView *source) const;
@@ -192,41 +187,6 @@ inline ComPtr<ID3D11PixelShader> CreatePixelShader(
     const HRESULT hr = device->CreatePixelShader(
         byteCode, len, nullptr, shader.GetAddressOf());
     return FAILED(hr) ? nullptr : shader;
-}
-
-inline ComPtr<ID3D11Buffer> CreatePixelSizeConstantBuffer(
-    ID3D11Device *device, int width, int height)
-{
-    struct PixelSizeConstant
-    {
-        float x, y, pad0, pad1;
-    };
-    
-    D3D11_BUFFER_DESC bufferDesc;
-    bufferDesc.ByteWidth           = sizeof(PixelSizeConstant);
-    bufferDesc.Usage               = D3D11_USAGE_IMMUTABLE;
-    bufferDesc.BindFlags           = D3D11_BIND_CONSTANT_BUFFER;
-    bufferDesc.CPUAccessFlags      = 0;
-    bufferDesc.MiscFlags           = 0;
-    bufferDesc.StructureByteStride = 0;
-
-    PixelSizeConstant data = { 1.0f / width, 1.0f / height, 0, 0 };
-
-    D3D11_SUBRESOURCE_DATA initData;
-    initData.pSysMem          = &data;
-    initData.SysMemPitch      = 0;
-    initData.SysMemSlicePitch = 0;
-
-    ComPtr<ID3D11Buffer> ret;
-    const HRESULT hr = device->CreateBuffer(
-        &bufferDesc, &initData, ret.GetAddressOf());
-    if(FAILED(hr))
-    {
-        throw std::runtime_error(
-            "failed to create constant buffer for weight shader");
-    }
-
-    return ret;
 }
 
 // ========= shader sources =========
@@ -333,16 +293,12 @@ float4 main(PSInput input) : SV_TARGET
 
 static const char *WEIGHT_SHADER_SOURCE = R"___(
 // #define EDGE_DETECTION_MAX_LEN
+// #define PIXEL_SIZE_IN_TEXCOORD
 
 struct PSInput
 {
     float4 position : SV_POSITION;
     float2 texCoord : TEXCOORD;
-};
-
-cbuffer PSConstant : register(b0)
-{
-    float2 PIXEL_SIZE_IN_TEXCOORD;
 };
 
 Texture2D<float4> EdgeTexture      : register(t0);
@@ -502,15 +458,12 @@ float4 main(PSInput input) : SV_TARGET
 )___";
 
 static const char *BLENDING_SHADER_SOURCE = R"___(
+//#define PIXEL_SIZE_IN_TEXCOORD XXX
+
 struct PSInput
 {
     float4 position : SV_POSITION;
     float2 texCoord : TEXCOORD;
-};
-
-cbuffer PSConstant : register(b0)
-{
-    float2 PIXEL_SIZE_IN_TEXCOORD;
 };
 
 Texture2D<float4> ImageTexture  : register(t0);
@@ -836,10 +789,8 @@ inline std::vector<float> GenerateInnerAreaTexture(
 } // namespace detail
 
 inline Common::Common(
-    ID3D11Device *device,
-    ID3D11DeviceContext *deviceContext,
-    int                  width,
-    int                  height)
+    ID3D11Device        *device,
+    ID3D11DeviceContext *deviceContext)
 {
     D  = device;
     DC = deviceContext;
@@ -931,17 +882,6 @@ inline Common::Common(
         &samplerDesc, linearSampler.GetAddressOf());
     if(FAILED(hr))
         throw std::runtime_error("MLAA: failed to initialize point sampler");
-
-    // pixel size constant buffer
-
-    pixelSizeConstantBuffer = detail::CreatePixelSizeConstantBuffer(
-        device, width, height);
-}
-
-inline void Common::setFramebufferSize(int width, int height)
-{
-    pixelSizeConstantBuffer = detail::CreatePixelSizeConstantBuffer(
-        D, width, height);
 }
 
 inline EdgeDetection::EdgeDetection(
@@ -1013,15 +953,20 @@ inline void EdgeDetection::detectEdge(
 }
 
 inline BlendingWeight::BlendingWeight(
-    ID3D11Device *device, int maxSearchDistanceLen)
+    ID3D11Device *device, int maxSearchDistanceLen, int width, int height)
 {
     // pixel shader
 
     const std::string maxEdgeDetectionLenStr =
         std::to_string(maxSearchDistanceLen);
 
+    const std::string pixelSizeInTexCoordStr = 
+        "float2(" + std::to_string(1.0f / width) + ", "
+                  + std::to_string(1.0f / height) + ")";
+
     const D3D_SHADER_MACRO WEIGHT_MACROS[] = {
-        { "EDGE_DETECTION_MAX_LEN" , maxEdgeDetectionLenStr.c_str()  },
+        { "EDGE_DETECTION_MAX_LEN" , maxEdgeDetectionLenStr.c_str() },
+        { "PIXEL_SIZE_IN_TEXCOORD", pixelSizeInTexCoordStr.c_str()  },
         { nullptr                  , nullptr                        }
     };
 
@@ -1035,15 +980,15 @@ inline BlendingWeight::BlendingWeight(
 
     // inner area texture
 
-    int width, height;
+    int innerWidth, innerHeight;
     const auto texData = detail::GenerateInnerAreaTexture(
-        maxSearchDistanceLen, &width, &height);
+        maxSearchDistanceLen, &innerWidth, &innerHeight);
 
     // create d3d11 texture
 
     D3D11_TEXTURE2D_DESC texDesc;
-    texDesc.Width              = width;
-    texDesc.Height             = height;
+    texDesc.Width              = innerWidth;
+    texDesc.Height             = innerHeight;
     texDesc.MipLevels          = 1;
     texDesc.ArraySize          = 1;
     texDesc.Format             = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -1056,7 +1001,7 @@ inline BlendingWeight::BlendingWeight(
 
     D3D11_SUBRESOURCE_DATA initData;
     initData.pSysMem          = texData.data();
-    initData.SysMemPitch      = width * sizeof(float) * 4;
+    initData.SysMemPitch      = innerWidth * sizeof(float) * 4;
     initData.SysMemSlicePitch = 0;
 
     HRESULT hr = device->CreateTexture2D(
@@ -1090,7 +1035,6 @@ inline void BlendingWeight::computeBlendingWeight(
     common.DC->PSSetSamplers(1, 1, common.linearSampler.GetAddressOf());
     common.DC->PSSetShaderResources(0, 1, &edgeTexture);
     common.DC->PSSetShaderResources(1, 1, innerAreaTextureSRV.GetAddressOf());
-    common.DC->PSSetConstantBuffers(0, 1, common.pixelSizeConstantBuffer.GetAddressOf());
 
     // bind vertex buffer/input layout
 
@@ -1116,9 +1060,6 @@ inline void BlendingWeight::computeBlendingWeight(
 
     // clear shader/texture/sampler
 
-    ID3D11Buffer *NULL_BUFFER = nullptr;
-    common.DC->PSSetConstantBuffers(0, 1, &NULL_BUFFER);
-
     ID3D11SamplerState *NULL_SAMPLER = nullptr;
     common.DC->PSSetSamplers(0, 1, &NULL_SAMPLER);
     common.DC->PSSetSamplers(1, 1, &NULL_SAMPLER);
@@ -1132,10 +1073,21 @@ inline void BlendingWeight::computeBlendingWeight(
 }
 
 inline Blending::Blending(
-    ID3D11Device *device)
+    ID3D11Device *device,
+    int           width,
+    int           height)
 {
+    const std::string pixelSizeInTexCoordStr =
+        "float2(" + std::to_string(1.0f / width) + ", "
+        + std::to_string(1.0f / height) + ")";
+
+    const D3D_SHADER_MACRO MACROS[] = {
+        { "PIXEL_SIZE_IN_TEXCOORD", pixelSizeInTexCoordStr.c_str()  },
+        { nullptr                  , nullptr                        }
+    };
+
     ComPtr<ID3D10Blob> blendingShaderByteCode = detail::CompileToByteCode(
-        detail::BLENDING_SHADER_SOURCE, "ps_5_0", nullptr);
+        detail::BLENDING_SHADER_SOURCE, "ps_5_0", MACROS);
 
     pixelShader = detail::CreatePixelShader(
         device,
@@ -1156,8 +1108,7 @@ inline void Blending::blend(
     common.DC->PSSetSamplers(1, 1, common.linearSampler.GetAddressOf());
     common.DC->PSSetShaderResources(0, 1, &img);
     common.DC->PSSetShaderResources(1, 1, &weightTexture);
-    common.DC->PSSetConstantBuffers(0, 1, common.pixelSizeConstantBuffer.GetAddressOf());
-
+    
     // bind vertex buffer/input layout
 
     const UINT stride = sizeof(float) * 4, offset = 0;
@@ -1181,9 +1132,6 @@ inline void Blending::blend(
     common.DC->IASetInputLayout(nullptr);
 
     // clear shader/texture/sampler
-
-    ID3D11Buffer *NULL_BUFFER = nullptr;
-    common.DC->PSSetConstantBuffers(0, 1, &NULL_BUFFER);
 
     ID3D11SamplerState *NULL_SAMPLER = nullptr;
     common.DC->PSSetSamplers(0, 1, &NULL_SAMPLER);
@@ -1205,17 +1153,12 @@ inline MLAA::MLAA(
     EdgeDetectionMode    mode,
     float                edgeDetectionThreshold,
     int                  maxSearchDistanceLen)
-    : common_        (device, deviceContext, width, height),
+    : common_        (device, deviceContext),
       edgeDetection_ (device, mode, edgeDetectionThreshold),
-      blendingWeight_(device, maxSearchDistanceLen),
-      blending_      (device)
+      blendingWeight_(device, maxSearchDistanceLen, width, height),
+      blending_      (device, width, height)
 {
 
-}
-
-inline void MLAA::setFramebufferSize(int width, int height)
-{
-    common_.setFramebufferSize(width, height);
 }
 
 inline void MLAA::detectEdge(
