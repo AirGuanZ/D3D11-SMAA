@@ -54,6 +54,7 @@ public:
     BlendingWeight(
         ID3D11Device *device,
         int           maxSearchDistanceLen,
+        float         cornerAreaFactor,
         int           width,
         int           height);
 
@@ -96,6 +97,7 @@ public:
         float                edgeThreshold,
         float                localContractFactor,
         int                  maxSearchDistanceLen,
+        float                cornerAreaFactor,
         int                  width,
         int                  height);
     

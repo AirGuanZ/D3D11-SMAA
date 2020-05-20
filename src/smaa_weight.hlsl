@@ -1,5 +1,6 @@
 // #define EDGE_DETECTION_MAX_LEN XXX
 // #define PIXEL_SIZE_IN_TEXCOORD XXX
+// #define CORNER_AREA_FACTOR     XXX
 
 // IMPROVE: performance optimization
 
@@ -154,6 +155,42 @@ float2 inner_area(float dist1, float cross1, float dist2, float cross2)
     return InnerAreaTexture.SampleLevel(PointSampler, float2(u, v), 0).rg;
 }
 
+float at_corner_factor(float dl, float dr, float e1, float e2)
+{
+    if(dl < dr && e1 > 0.1)
+        return CORNER_AREA_FACTOR;
+    if(dl > dr && e2 > 0.1)
+        return CORNER_AREA_FACTOR;
+    return 1;
+}
+
+float ab_corner_factor(float dl, float dr, float e3, float e4)
+{
+    if(dl < dr && e3 > 0.1)
+        return CORNER_AREA_FACTOR;
+    if(dl > dr && e4 > 0.1)
+        return CORNER_AREA_FACTOR;
+    return 1;
+}
+
+float al_corner_factor(float db, float dt, float e1, float e2)
+{
+    if(db < dt && e1 > 0.1)
+        return CORNER_AREA_FACTOR;
+    if(db > dt && e2 > 0.1)
+        return CORNER_AREA_FACTOR;
+    return 1;
+}
+
+float ar_corner_factor(float db, float dt, float e3, float e4)
+{
+    if(db < dt && e3 > 0.1)
+        return CORNER_AREA_FACTOR;
+    if(db > dt && e4 > 0.1)
+        return CORNER_AREA_FACTOR;
+    return 1;
+}
+
 float4 main(PSInput input) : SV_TARGET
 {
     float4 output = (float4)0;
@@ -180,13 +217,30 @@ float4 main(PSInput input) : SV_TARGET
 
         output.ba = inner_area(
             -top_end, cross_top, bottom_end, cross_bottom);
+
+        float2 e1_coord = input.texCoord + float2(-2, bottom_end + 1) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e2_coord = input.texCoord + float2(-2, top_end) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e3_coord = input.texCoord + float2(1, bottom_end + 1) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e4_coord = input.texCoord + float2(1, top_end) * PIXEL_SIZE_IN_TEXCOORD;
+
+        float e1 = EdgeTexture.SampleLevel(PointSampler, e1_coord, 0).g;
+        float e2 = EdgeTexture.SampleLevel(PointSampler, e2_coord, 0).g;
+        float e3 = EdgeTexture.SampleLevel(PointSampler, e3_coord, 0).g;
+        float e4 = EdgeTexture.SampleLevel(PointSampler, e4_coord, 0).g;
+
+        output.b *= ar_corner_factor(bottom_end, -top_end, e3, e4);
+        output.a *= al_corner_factor(bottom_end, -top_end, e1, e2);
     }
 
     // edge at top side
     if(e.g)
     {
+        // find left/right edge length
+
         float left_end = find_left_end(input.texCoord);
         float right_end = find_right_end(input.texCoord);
+
+        // compute at & ab
 
         float2 coord_left = float2(
             input.texCoord.x + left_end * PIXEL_SIZE_IN_TEXCOORD.x,
@@ -202,6 +256,21 @@ float4 main(PSInput input) : SV_TARGET
 
         output.rg = inner_area(
             -left_end, cross_left, right_end, cross_right);
+
+        // corner area factor
+
+        float2 e1_coord = input.texCoord + float2(left_end,      -2) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e2_coord = input.texCoord + float2(right_end + 1, -2) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e3_coord = input.texCoord + float2(left_end,       1) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e4_coord = input.texCoord + float2(right_end + 1,  1) * PIXEL_SIZE_IN_TEXCOORD;
+
+        float e1 = EdgeTexture.SampleLevel(PointSampler, e1_coord, 0).r;
+        float e2 = EdgeTexture.SampleLevel(PointSampler, e2_coord, 0).r;
+        float e3 = EdgeTexture.SampleLevel(PointSampler, e3_coord, 0).r;
+        float e4 = EdgeTexture.SampleLevel(PointSampler, e4_coord, 0).r;
+
+        output.r *= ab_corner_factor(-left_end, right_end, e3, e4);
+        output.g *= at_corner_factor(-left_end, right_end, e1, e2);
     }
 
     return output;

@@ -91,6 +91,7 @@ void run()
     float edgeThreshold           = 0.1f;
     float edgeLocalContrastFactor = 0.5f;
     int maxSearchDistanceLen      = 8;
+    float cornerAreaFactor        = 0.5f;
 
     std::unique_ptr<agz::mlaa::MLAA> mlaa;
     std::unique_ptr<agz::smaa::SMAA> smaa;
@@ -106,7 +107,7 @@ void run()
         smaa = std::make_unique<agz::smaa::SMAA>(
             window.Device(), window.DeviceContext(),
             edgeThreshold, edgeLocalContrastFactor,
-            maxSearchDistanceLen,
+            maxSearchDistanceLen, cornerAreaFactor,
             targetSize.x, targetSize.y);
     };
 
@@ -227,7 +228,7 @@ void run()
 
             ImGui::Checkbox("use SMAA", &useSMAA);
 
-            if(!useSMAA && ImGui::InputInt(
+            if(ImGui::InputInt(
                 "search distance", &maxSearchDistanceLen))
             {
                 maxSearchDistanceLen = (std::max)(0, maxSearchDistanceLen);
@@ -241,6 +242,10 @@ void run()
                     0.0f, edgeLocalContrastFactor);
                 updateAA();
             }
+
+            if(useSMAA && ImGui::SliderFloat(
+                "corner area factor", &cornerAreaFactor, 0, 1))
+                updateAA();
 
             if(ImGui::SliderFloat("edge threshold", &edgeThreshold, 0, 1))
                 updateAA();
@@ -287,11 +292,11 @@ void run()
         window.DeviceContext()->ClearRenderTargetView(
             weightTarget->GetRenderTargetView().Get(), TARGET_BKGD);
 
-        if(!useSMAA)
-            mlaa->computeBlendingWeight(edgeTarget->GetShaderResourceView().Get());
-        else
+        if(useSMAA)
             smaa->computeBlendingWeight(edgeTarget->GetShaderResourceView().Get());
-
+        else
+            mlaa->computeBlendingWeight(edgeTarget->GetShaderResourceView().Get());
+        
         window.UseDefaultRenderTargetAndDepthStencil();
 
         // compute output image
@@ -301,11 +306,11 @@ void run()
         window.DeviceContext()->ClearRenderTargetView(
             outputTarget->GetRenderTargetView().Get(), TARGET_BKGD);
 
-        if(!useSMAA)
-            mlaa->blend(weightTarget->GetShaderResourceView().Get(), img.Get());
-        else
+        if(useSMAA)
             smaa->blend(weightTarget->GetShaderResourceView().Get(), img.Get());
-
+        else
+            mlaa->blend(weightTarget->GetShaderResourceView().Get(), img.Get());
+        
         window.UseDefaultRenderTargetAndDepthStencil();
 
         // render to screen
