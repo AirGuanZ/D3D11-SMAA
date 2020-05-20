@@ -138,7 +138,7 @@ namespace detail
 
 // ========= compile shader =========
 
-inline ComPtr<ID3D10Blob> CompileToByteCode(
+inline ComPtr<ID3D10Blob> compileToByteCode(
     const char *source, const char *target,
     const D3D_SHADER_MACRO *macros = nullptr)
 {
@@ -171,7 +171,7 @@ inline ComPtr<ID3D10Blob> CompileToByteCode(
 
 // ========= create shader =========
 
-inline ComPtr<ID3D11VertexShader> CreateVertexShader(
+inline ComPtr<ID3D11VertexShader> createVertexShader(
     ID3D11Device *device, void *byteCode, size_t len)
 {
     ComPtr<ID3D11VertexShader> shader;
@@ -180,7 +180,7 @@ inline ComPtr<ID3D11VertexShader> CreateVertexShader(
     return FAILED(hr) ? nullptr : shader;
 }
 
-inline ComPtr<ID3D11PixelShader> CreatePixelShader(
+inline ComPtr<ID3D11PixelShader> createPixelShader(
     ID3D11Device *device, void *byteCode, size_t len)
 {
     ComPtr<ID3D11PixelShader> shader;
@@ -527,7 +527,7 @@ inline Vec2 operator*(float lhs, const Vec2 &rhs) noexcept
     a2: area in the upper pixel that
         should be covered by color of the lower pixel
 */
-inline std::pair<float, float> ComputePixelInnerArea(
+inline std::pair<float, float> computePixelInnerArea(
     const Vec2 &a, const Vec2 &b, int pixel)
 {
     const float xL = static_cast<float>(pixel);
@@ -572,7 +572,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
     return { areaLeft, areaRight };
 }
 
-inline std::pair<float, float> ComputePixelInnerArea(
+inline std::pair<float, float> computePixelInnerArea(
     int dist1, int cross1, int dist2, int cross2)
 {
     const float dist = static_cast<float>(dist1) +
@@ -591,7 +591,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         //          |
         // ----------
         //
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { dist / 2, 0 }, { dist, -0.5f }, dist1);
     }
 
@@ -600,7 +600,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         //
         // ----------
         //          |
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { dist / 2, 0 }, { dist, 0.5f }, dist1);
     }
 
@@ -617,7 +617,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         // |
         // ----------
         //
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { 0, -0.5f }, { dist / 2, 0 }, dist1);
     }
 
@@ -626,9 +626,9 @@ inline std::pair<float, float> ComputePixelInnerArea(
         // |        |
         // ----------
         //
-        const auto aL = ComputePixelInnerArea(
+        const auto aL = computePixelInnerArea(
             { 0, -0.5f }, { dist / 2, 0.0f }, dist1);
-        const auto aR = ComputePixelInnerArea(
+        const auto aR = computePixelInnerArea(
             { dist / 2, 0.0f }, { dist, -0.5f }, dist1);
         return { aL.first + aR.first, aL.second + aR.second };
     }
@@ -638,7 +638,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         // |
         // ----------
         //          |
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { 0, -0.5f }, { dist, 0.5f }, dist1);
     }
 
@@ -647,7 +647,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         // |        |
         // ----------
         //          |
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { 0, -0.5f }, { dist, 0.5f }, dist1);
     }
 
@@ -656,7 +656,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         //
         // ----------
         // |
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { 0, 0.5f }, { dist / 2, 0 }, dist1);
     }
 
@@ -665,7 +665,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         //          |
         // ----------
         // |
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { 0, 0.5f }, { dist, -0.5f }, dist1);
     }
 
@@ -674,9 +674,9 @@ inline std::pair<float, float> ComputePixelInnerArea(
         //
         // ----------
         // |        |
-        const auto aL = ComputePixelInnerArea(
+        const auto aL = computePixelInnerArea(
             { 0, 0.5f }, { dist / 2, 0.0f }, dist1);
-        const auto aR = ComputePixelInnerArea(
+        const auto aR = computePixelInnerArea(
             { dist / 2, 0.0f }, { dist, 0.5f }, dist1);
         return { aL.first + aR.first, aL.second + aR.second };
     }
@@ -686,7 +686,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         //          |
         // ----------
         // |        |
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { 0, 0.5f }, { dist, -0.5f }, dist1);
     }
 
@@ -703,7 +703,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         // |        |
         // ----------
         // |
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { 0, 0.5f }, { dist, -0.5f }, dist1);
     }
 
@@ -712,7 +712,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
         // |
         // ----------
         // |        |
-        return ComputePixelInnerArea(
+        return computePixelInnerArea(
             { 0, -0.5f }, { dist, 0.5f }, dist1);
     }
 
@@ -729,7 +729,7 @@ inline std::pair<float, float> ComputePixelInnerArea(
 
 // this method will be called for only once during construction
 // so it's not well optimized
-inline std::vector<float> GenerateInnerAreaTexture(
+inline std::vector<float> generateInnerAreaTexture(
     int maxEdgeDetectionLen,
     int *width, int *height)
 {
@@ -771,7 +771,7 @@ inline std::vector<float> GenerateInnerAreaTexture(
             {
                 for(int dist2 = 0; dist2 < gridSidelen; ++dist2)
                 {
-                    const auto rg = ComputePixelInnerArea(
+                    const auto rg = computePixelInnerArea(
                         dist1, cross1, dist2, cross2);
 
                     auto pTexel = texel(dist1, cross1, dist2, cross2);
@@ -797,10 +797,10 @@ inline Common::Common(
 
     // vertex shader
 
-    ComPtr<ID3D10Blob> vertexShaderByteCode = detail::CompileToByteCode(
+    ComPtr<ID3D10Blob> vertexShaderByteCode = detail::compileToByteCode(
         detail::COMMON_VERTEX_SHADER_SOURCE, "vs_5_0", nullptr);
 
-    vertexShader = detail::CreateVertexShader(
+    vertexShader = detail::createVertexShader(
         device,
         vertexShaderByteCode->GetBufferPointer(),
         vertexShaderByteCode->GetBufferSize());
@@ -899,10 +899,10 @@ inline EdgeDetection::EdgeDetection(
                                detail::EDGE_DEPTH_SHADER_SOURCE :
                                detail::EDGE_LUM_SHADER_SOURCE;
 
-    ComPtr<ID3D10Blob> edgeShaderByteCode = detail::CompileToByteCode(
+    ComPtr<ID3D10Blob> edgeShaderByteCode = detail::compileToByteCode(
         shaderSource, "ps_5_0", EDGE_MACROS);
 
-    pixelShader = detail::CreatePixelShader(
+    pixelShader = detail::createPixelShader(
         device,
         edgeShaderByteCode->GetBufferPointer(),
         edgeShaderByteCode->GetBufferSize());
@@ -970,10 +970,10 @@ inline BlendingWeight::BlendingWeight(
         { nullptr                  , nullptr                        }
     };
 
-    ComPtr<ID3D10Blob> weightShaderByteCode = detail::CompileToByteCode(
+    ComPtr<ID3D10Blob> weightShaderByteCode = detail::compileToByteCode(
         detail::WEIGHT_SHADER_SOURCE, "ps_5_0", WEIGHT_MACROS);
 
-    pixelShader = detail::CreatePixelShader(
+    pixelShader = detail::createPixelShader(
         device,
         weightShaderByteCode->GetBufferPointer(),
         weightShaderByteCode->GetBufferSize());
@@ -981,7 +981,7 @@ inline BlendingWeight::BlendingWeight(
     // inner area texture
 
     int innerWidth, innerHeight;
-    const auto texData = detail::GenerateInnerAreaTexture(
+    const auto texData = detail::generateInnerAreaTexture(
         maxSearchDistanceLen, &innerWidth, &innerHeight);
 
     // create d3d11 texture
@@ -1086,10 +1086,10 @@ inline Blending::Blending(
         { nullptr                  , nullptr                        }
     };
 
-    ComPtr<ID3D10Blob> blendingShaderByteCode = detail::CompileToByteCode(
+    ComPtr<ID3D10Blob> blendingShaderByteCode = detail::compileToByteCode(
         detail::BLENDING_SHADER_SOURCE, "ps_5_0", MACROS);
 
-    pixelShader = detail::CreatePixelShader(
+    pixelShader = detail::createPixelShader(
         device,
         blendingShaderByteCode->GetBufferPointer(),
         blendingShaderByteCode->GetBufferSize());

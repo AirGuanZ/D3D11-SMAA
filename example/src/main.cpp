@@ -27,7 +27,7 @@ void run()
     window.Initialize(window_desc);
     window.Maximize();
 
-    // initialize WIC
+    // initialize WIC for screenshot saving
 
 #if (_WIN32_WINNT >= 0x0A00 /*_WIN32_WINNT_WIN10*/)
     Microsoft::WRL::Wrappers::RoInitializeWrapper roInit(RO_INIT_MULTITHREADED);
@@ -46,7 +46,7 @@ void run()
     imm2d.SetFramebufferSize(
         { window.GetClientSizeX(), window.GetClientSizeY() });
 
-    // edge texture & blending weight texture
+    // intermediate rendertarget
 
     Vec2i targetSize = {
         window.GetClientSizeX(),
@@ -86,12 +86,12 @@ void run()
         window.setViewport(vp);
     };
 
-    // initialize mlaa
+    // mlaa & smaa
 
     float edgeThreshold           = 0.1f;
     float edgeLocalContrastFactor = 0.5f;
-    int maxSearchDistanceLen      = 8;
     float cornerAreaFactor        = 0.5f;
+    int maxSearchDistanceLen      = 8;
 
     std::unique_ptr<agz::mlaa::MLAA> mlaa;
     std::unique_ptr<agz::smaa::SMAA> smaa;

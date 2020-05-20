@@ -12,6 +12,7 @@ struct PSInput
 
 Texture2D<float4> EdgeTexture      : register(t0);
 Texture2D<float4> InnerAreaTexture : register(t1);
+Texture2D<float4> EndLenTexture    : register(t2);
 
 SamplerState PointSampler  : register(s0);
 SamplerState LinearSampler : register(s1);
@@ -23,6 +24,9 @@ bool is_edge_end(float e, float ce)
 
 float end_len_high(float e, float ce)
 {
+    /*
+    // unoptimized version
+
     // 4 weighted contributor of e:
     // 0.6525, 0.21875, 0.09375, 0.03125
     if(e < 0.64)
@@ -31,7 +35,6 @@ float end_len_high(float e, float ce)
 
     // there is 16 value cases of ce
     // in which only 4 'segments' of end len
-    // TODO: LUT optimization
     float ans_ce;
     if(ce < 0.09)
         ans_ce = 2;
@@ -43,15 +46,20 @@ float end_len_high(float e, float ce)
         ans_ce = 1;
 
     return min(ans_e, ans_ce);
+    */
+
+    return EndLenTexture.SampleLevel(PointSampler, float2(e, ce), 0).r;
 }
 
 float end_len_low(float e, float ce)
 {
+    /*
+    // unoptimized version
+
     if(e < 0.64)
         return 0;
     float ans_e = e > 0.87 ? 2 : 1;
 
-    // TODO: LUT optimization
     float ans_ce;
     if(ce < 0.03)
         ans_ce = 2;
@@ -65,6 +73,9 @@ float end_len_low(float e, float ce)
         ans_ce = 0;
 
     return min(ans_e, ans_ce);
+    */
+
+    return EndLenTexture.SampleLevel(PointSampler, float2(e, ce), 0).g;
 }
 
 float find_left_end(float2 c)
@@ -219,9 +230,9 @@ float4 main(PSInput input) : SV_TARGET
             -top_end, cross_top, bottom_end, cross_bottom);
 
         float2 e1_coord = input.texCoord + float2(-2, bottom_end + 1) * PIXEL_SIZE_IN_TEXCOORD;
-        float2 e2_coord = input.texCoord + float2(-2, top_end) * PIXEL_SIZE_IN_TEXCOORD;
-        float2 e3_coord = input.texCoord + float2(1, bottom_end + 1) * PIXEL_SIZE_IN_TEXCOORD;
-        float2 e4_coord = input.texCoord + float2(1, top_end) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e2_coord = input.texCoord + float2(-2, top_end       ) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e3_coord = input.texCoord + float2( 1, bottom_end + 1) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e4_coord = input.texCoord + float2( 1, top_end       ) * PIXEL_SIZE_IN_TEXCOORD;
 
         float e1 = EdgeTexture.SampleLevel(PointSampler, e1_coord, 0).g;
         float e2 = EdgeTexture.SampleLevel(PointSampler, e2_coord, 0).g;
