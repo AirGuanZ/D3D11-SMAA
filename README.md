@@ -11,10 +11,14 @@ Run following cmds in project directory:
 ```
 mkdir build
 cd build
-cmake -DAGZ_SMAA_BUILD_EXAMPLE=ON ..
+cmake ..
 ```
 
-## MLAA
+## Usage
 
-Reference: 
+TODO
 
+## TODO
+
+- [ ] diagonal pattern handling
+- [ ] subpixel rendering (coupling with msaa and taa)
