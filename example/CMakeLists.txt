@@ -6,7 +6,9 @@ ADD_SUBDIRECTORY("${PROJECT_SOURCE_DIR}/example/lib/DirectXTK")
 TARGET_COMPILE_DEFINITIONS(AGZUtils PUBLIC _UNICODE)
 
 SET(AGZ_SMAA_EXAMPLE_SRC
-	"${PROJECT_SOURCE_DIR}/example/src/main.cpp")
+	"${PROJECT_SOURCE_DIR}/example/src/main.cpp"
+	"${PROJECT_SOURCE_DIR}/include/agz/smaa/smaa.h"
+	"${PROJECT_SOURCE_DIR}/include/agz/smaa/mlaa.h")
 
 ADD_EXECUTABLE(AGZSMAAExample ${AGZ_SMAA_EXAMPLE_SRC})
 

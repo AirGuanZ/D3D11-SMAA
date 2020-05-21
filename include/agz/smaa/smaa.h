@@ -14,6 +14,11 @@ namespace agz { namespace smaa {
 
 using Microsoft::WRL::ComPtr;
 
+/**
+ * @brief common components for all three stages of smaa
+ * 
+ * this is for internal use. not recommended to use
+ */
 class Common
 {
 public:
@@ -37,12 +42,27 @@ public:
     ComPtr<ID3D11SamplerState> linearSampler;
 };
 
+/**
+ * @brief use depth/lum mode in edge detection
+ */
+enum class EdgeDetectionMode
+{
+    Depth,
+    Lum
+};
+
+/**
+ * @brief edge detection stage
+ * 
+ * this is for internal use. not recommended to use
+ */
 class EdgeDetection
 {
 public:
 
     EdgeDetection(
         ID3D11Device *device,
+        EdgeDetectionMode          mode,
         float         edgeThreshold,
         float         localContractFactor);
 
@@ -53,6 +73,11 @@ public:
     ComPtr<ID3D11PixelShader> pixelShader;
 };
 
+/**
+ * @brief blending weight computation stage
+ *
+ * this is for internal use. not recommended to use
+ */
 class BlendingWeight
 {
 public:
@@ -77,6 +102,11 @@ public:
     ComPtr<ID3D11ShaderResourceView> endLenTextureSRV;
 };
 
+/**
+ * @brief blending stage
+ *
+ * this is for internal use. not recommended to use
+ */
 class Blending
 {
 public:
@@ -96,26 +126,89 @@ public:
 
 //  ========= SMAA =========
 
+/**
+ * @brief fullscreen anti-aliasing post processor
+ *
+ * see http://www.iryoku.com/smaa/
+ *
+ * the whole algorithm contains 3 stages:
+ * - edge detection
+ * - blending weight computation
+ * - color blending
+ *
+ * each stage is performed by calling one of:
+ * - detectEdge
+ * - computeBlendingWeight
+ * - blend
+ *
+ * the implementation will bind/unbind the shader, vertex buffer, shader resource and so on.
+ * however, render target binding and graphics pipeline state like depth stencil operation
+ * must be settled by user.
+ *
+ * @code
+ * typical usage:
+ *      bind and clear render target for edge detection
+ *      smaa.detectEdge(inputImage or depthTexture)
+ *      bind and clear render target for blending weight computation
+ *      smaa.computeBlendingWeight(edgeTexture)
+ *      bind and clear render target for final result
+ *      smaa.blend(weightTexture, inputImage)
+ * @endcode
+ */
 class SMAA
 {
 public:
 
+    /**
+     * @param device               d3d11 device
+     * @param deviceContext        d3d11 device context
+     * @param width                frame buffer width
+     * @param height               frame buffer height
+     * @param mode                 use depth or color image in edge detection
+     * @param edgeThreshold        edge detection threshold. range: [0, 1]
+     * @param localContrastFactor  threshold in local contrast adaptation. meaningful only for Lum mode. range: [0, 1]
+     * @param maxSearchDistanceLen max number of iterations in searching edge pattern. range: [0, 128]
+     * @param cornerAreaFactor     sharp corner adaptation factor. range: [0, 1]
+     */
     SMAA(
         ID3D11Device        *device,
         ID3D11DeviceContext *deviceContext,
-        float                edgeThreshold,
-        float                localContractFactor,
-        int                  maxSearchDistanceLen,
-        float                cornerAreaFactor,
         int                  width,
-        int                  height);
-    
+        int                  height,
+        EdgeDetectionMode    mode                 = EdgeDetectionMode::Lum,
+        float                edgeThreshold        = 0.1f,
+        float                localContrastFactor  = 0.5f,
+        int                  maxSearchDistanceLen = 8,
+        float                cornerAreaFactor     = 0.3f);
+
+    /**
+     * @brief perform edge detection
+     *
+     * output pixel: 2-channel binary value
+     *
+     * @param img rendered color image when mode == Lum. otherwise, depth texture
+     */
     void detectEdge(
         ID3D11ShaderResourceView *img) const;
-    
+
+    /**
+     * @brief perform blending weight computation
+     *
+     * output pixel: 4-channel float value
+     *
+     * @param edgeTexture output of 'detectEdge'
+     */
     void computeBlendingWeight(
         ID3D11ShaderResourceView *edgeTexture);
 
+    /**
+     * @brief perform color blending
+     *
+     * output pixel: blended rgba color
+     *
+     * @param weightTexture output of 'computeBlendingWeight'
+     * @param img           rendered color image
+     */
     void blend(
         ID3D11ShaderResourceView *weightTexture,
         ID3D11ShaderResourceView *img);
@@ -208,7 +301,41 @@ VSOutput main(VSInput input)
 }
 )___";
 
-static const char *EDGE_DETECTION_SHADER_SOURCE = R"___(
+static const char *EDGE_DEPTH_DETECTION_SHADER_SOURCE = R"___(
+// #define EDGE_THRESHOLD XXX
+
+struct PSInput
+{
+    float4 position : SV_POSITION;
+    float2 texCoord : TEXCOORD;
+};
+
+Texture2D<float> DepthTexture : register(t0);
+SamplerState     PointSampler : register(s0);
+
+float4 main(PSInput input) : SV_TARGET
+{
+    // sample depth texture
+
+    float d = DepthTexture.SampleLevel(
+        PointSampler, input.texCoord, 0);
+    float d_left = DepthTexture.SampleLevel(
+        PointSampler, input.texCoord, 0, int2(-1, 0));
+    float d_top = DepthTexture.SampleLevel(
+        PointSampler, input.texCoord, 0, int2(0, -1));
+
+    // compute delta depth
+
+    float2 delta_d = abs(d.xx - float2(d_left, d_top));
+
+    float2 is_edge = step(EDGE_THRESHOLD, delta_d);
+    if(is_edge.x == 0 && is_edge.y == 0)
+        discard;
+    return float4(is_edge, 0, 0);
+}
+)___";
+
+static const char *EDGE_LUM_DETECTION_SHADER_SOURCE = R"___(
 // #define EDGE_THRESHOLD  XXX
 // #define CONTRAST_FACTOR XXX
 
@@ -298,6 +425,75 @@ bool is_edge_end(float e, float ce)
     return e < 0.87 || ce > 0.01;
 }
 
+/*
+ce table construction (in c++):
+
+#include <array>
+#include <atomic>
+#include <iostream>
+#include <thread>
+#include <vector>
+
+using namespace std;
+
+int main()
+{
+    cout << "============ ce table of end high len ============" << endl;
+    cout << "subregion contrib * 4, ce value, ce end len" << endl;
+
+    float weight[4] = { 0.03125, 0.09375, 0.21875, 0.65625 };
+
+    for(unsigned i = 0; i < 16; ++i)
+    {
+        float ans = 0;
+        for(int b = 0; b < 4; ++b)
+        {
+            if(i & (1 << b))
+            {
+                ans += weight[b];
+                cout << weight[b] << " ";
+            }
+            else
+                cout << 0 << " ";
+        }
+        cout << ans << " ";
+
+        if(i == 0)
+            cout << 2 << endl;
+        else if((i & 0b1000) || (i & 0b0010))
+            cout << 1 << endl;
+        else
+            cout << 2 << endl;
+    }
+
+    cout << "============ ce table of end low len ============" << endl;
+    cout << "subregion contrib * 4, ce value, ce end len" << endl;
+
+    for(unsigned i = 0; i < 16; ++i)
+    {
+        float ans = 0;
+        for(int b = 0; b < 4; ++b)
+        {
+            if(i & (1 << b))
+            {
+                ans += weight[b];
+                cout << weight[b] << " ";
+            }
+            else
+                cout << 0 << " ";
+        }
+        cout << ans << " ";
+
+        if(i == 0)
+            cout << 2 << endl;
+        else if((i & 0b1000) || (i & 0b0010))
+            cout << 0 << endl;
+        else
+            cout << 1 << endl;
+    }
+}
+*/
+
 float end_len_high(float e, float ce)
 {
     /*
@@ -309,8 +505,7 @@ float end_len_high(float e, float ce)
         return 0;
     float ans_e = e > 0.87 ? 2 : 1;
 
-    // there is 16 value cases of ce
-    // in which only 4 'segments' of end len
+    // segmented using ce table
     float ans_ce;
     if(ce < 0.09)
         ans_ce = 2;
@@ -506,9 +701,9 @@ float4 main(PSInput input) : SV_TARGET
             -top_end, cross_top, bottom_end, cross_bottom);
 
         float2 e1_coord = input.texCoord + float2(-2, bottom_end + 1) * PIXEL_SIZE_IN_TEXCOORD;
-        float2 e2_coord = input.texCoord + float2(-2, top_end       ) * PIXEL_SIZE_IN_TEXCOORD;
-        float2 e3_coord = input.texCoord + float2( 1, bottom_end + 1) * PIXEL_SIZE_IN_TEXCOORD;
-        float2 e4_coord = input.texCoord + float2( 1, top_end       ) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e2_coord = input.texCoord + float2(-2, top_end) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e3_coord = input.texCoord + float2(1, bottom_end + 1) * PIXEL_SIZE_IN_TEXCOORD;
+        float2 e4_coord = input.texCoord + float2(1, top_end) * PIXEL_SIZE_IN_TEXCOORD;
 
         float e1 = EdgeTexture.SampleLevel(PointSampler, e1_coord, 0).g;
         float e2 = EdgeTexture.SampleLevel(PointSampler, e2_coord, 0).g;
@@ -1069,6 +1264,7 @@ inline void Common::unbindVertex() const
 
 inline EdgeDetection::EdgeDetection(
     ID3D11Device *device,
+    EdgeDetectionMode          mode,
     float         edgeThreshold,
     float         localContrastFactor)
 {
@@ -1083,8 +1279,12 @@ inline EdgeDetection::EdgeDetection(
         { nullptr          , nullptr                        }
     };
 
+    const char *shaderSource = mode == EdgeDetectionMode::Depth ?
+        detail::EDGE_DEPTH_DETECTION_SHADER_SOURCE :
+        detail::EDGE_LUM_DETECTION_SHADER_SOURCE;
+
     ComPtr<ID3D10Blob> shaderByteCode = detail::compileToByteCode(
-        detail::EDGE_DETECTION_SHADER_SOURCE, "ps_5_0", MACROS);
+        shaderSource, "ps_5_0", MACROS);
 
     pixelShader = detail::createPixelShader(
         device,
@@ -1337,14 +1537,15 @@ inline void Blending::blend(
 inline SMAA::SMAA(
     ID3D11Device        *device,
     ID3D11DeviceContext *deviceContext,
-    float                edgeThreshold,
-    float                localContractFactor,
-    int                  maxSearchDistanceLen,
-    float                cornerAreaFactor,
     int                  width,
-    int                  height)
+    int                  height,
+    EdgeDetectionMode    mode,
+    float                edgeThreshold,
+    float                localContrastFactor,
+    int                  maxSearchDistanceLen,
+    float                cornerAreaFactor)
     : common_(device, deviceContext),
-      edgeDetection_(device, edgeThreshold, localContractFactor),
+      edgeDetection_(device, mode, edgeThreshold, localContrastFactor),
       blendingWeight_(
           device, maxSearchDistanceLen, cornerAreaFactor, width, height),
       blending_(device, width, height)

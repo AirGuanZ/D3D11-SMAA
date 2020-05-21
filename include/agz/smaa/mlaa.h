@@ -14,6 +14,11 @@ namespace agz { namespace mlaa {
 
 using Microsoft::WRL::ComPtr;
 
+/**
+ * @brief common components for all three stages of mlaa
+ *
+ * this is for internal use. not recommended to use
+ */
 class Common
 {
 public:
@@ -33,19 +38,22 @@ public:
     ComPtr<ID3D11SamplerState> linearSampler;
 };
 
+enum class EdgeDetectionMode
+{
+    Depth,
+    Lum
+};
+
+/**
+ * @brief use depth/lum mode in edge detection
+ */
 class EdgeDetection
 {
 public:
 
-    enum class Mode
-    {
-        Depth,
-        Lum
-    };
-
     explicit EdgeDetection(
         ID3D11Device *device,
-        Mode          mode,
+        EdgeDetectionMode          mode,
         float         threshold);
 
     void detectEdge(
@@ -55,6 +63,11 @@ public:
     ComPtr<ID3D11PixelShader> pixelShader;
 };
 
+/**
+ * @brief blending weight computation stage
+ *
+ * this is for internal use. not recommended to use
+ */
 class BlendingWeight
 {
 public:
@@ -75,6 +88,11 @@ public:
     ComPtr<ID3D11ShaderResourceView> innerAreaTextureSRV;
 };
 
+/**
+ * @brief blending stage
+ *
+ * this is for internal use. not recommended to use
+ */
 class Blending
 {
 public:
@@ -94,12 +112,47 @@ public:
 
 // ========= MLAA =========
 
+/**
+ * @brief fullscreen anti-aliasing post processor
+ *
+ * see http://iryoku.com/mlaa/
+ *
+ * the whole algorithm contains 3 stages:
+ * - edge detection
+ * - blending weight computation
+ * - color blending
+ *
+ * each stage is performed by calling one of:
+ * - detectEdge
+ * - computeBlendingWeight
+ * - blend
+ *
+ * the implementation will bind/unbind the shader, vertex buffer, shader resource and so on.
+ * however, render target binding and graphics pipeline state like depth stencil operation
+ * must be settled by user.
+ *
+ * @code
+ * typical usage:
+ *      bind and clear render target for edge detection
+ *      mlaa.detectEdge(inputImage or depthTexture)
+ *      bind and clear render target for blending weight computation
+ *      mlaa.computeBlendingWeight(edgeTexture)
+ *      bind and clear render target for final result
+ *      mlaa.blend(weightTexture, inputImage)
+ * @endcode
+ */
 class MLAA
 {
 public:
 
-    using EdgeDetectionMode = EdgeDetection::Mode;
-
+    /**
+     * @param device               d3d11 device
+     * @param deviceContext        d3d11 device context
+     * @param width                frame buffer width
+     * @param height               frame buffer height
+     * @param mode                 use depth or color image in edge detection
+     * @param maxSearchDistanceLen max number of iterations in searching edge pattern. range: [0, 128]
+     */
     MLAA(
         ID3D11Device        *device,
         ID3D11DeviceContext *deviceContext,
@@ -109,12 +162,34 @@ public:
         float                edgeDetectionThreshold = 0.1f,
         int                  maxSearchDistanceLen   = 8);
 
+    /**
+     * @brief perform edge detection
+     *
+     * output pixel: 2-channel binary value
+     *
+     * @param source rendered color image when mode == Lum. otherwise, depth texture
+     */
     void detectEdge(
         ID3D11ShaderResourceView *source) const;
 
+    /**
+     * @brief perform blending weight computation
+     *
+     * output pixel: 4-channel float value
+     *
+     * @param edgeTexture output of 'detectEdge'
+     */
     void computeBlendingWeight(
         ID3D11ShaderResourceView *edgeTexture) const;
 
+    /**
+     * @brief perform color blending
+     *
+     * output pixel: blended rgba color
+     * 
+     * @param weightTexture output of 'computeBlendingWeight'
+     * @param img           rendered color image
+     */
     void blend(
         ID3D11ShaderResourceView *weightTexture,
         ID3D11ShaderResourceView *img) const;
@@ -885,7 +960,7 @@ inline Common::Common(
 }
 
 inline EdgeDetection::EdgeDetection(
-    ID3D11Device *device, Mode mode, float threshold)
+    ID3D11Device *device, EdgeDetectionMode mode, float threshold)
 {
     const std::string edgeThresholdStr =
         std::to_string(threshold);
@@ -895,7 +970,7 @@ inline EdgeDetection::EdgeDetection(
         { nullptr           , nullptr                  }
     };
 
-    const char *shaderSource = mode == Mode::Depth ?
+    const char *shaderSource = mode == EdgeDetectionMode::Depth ?
                                detail::EDGE_DEPTH_SHADER_SOURCE :
                                detail::EDGE_LUM_SHADER_SOURCE;
 

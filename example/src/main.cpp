@@ -101,14 +101,15 @@ void run()
         mlaa = std::make_unique<agz::mlaa::MLAA>(
             window.Device(), window.DeviceContext(),
             targetSize.x, targetSize.y,
-            agz::mlaa::MLAA::EdgeDetectionMode::Lum,
+            agz::mlaa::EdgeDetectionMode::Lum,
             edgeThreshold, maxSearchDistanceLen);
 
         smaa = std::make_unique<agz::smaa::SMAA>(
             window.Device(), window.DeviceContext(),
+            targetSize.x, targetSize.y,
+            agz::smaa::EdgeDetectionMode::Lum,
             edgeThreshold, edgeLocalContrastFactor,
-            maxSearchDistanceLen, cornerAreaFactor,
-            targetSize.x, targetSize.y);
+            maxSearchDistanceLen, cornerAreaFactor);
     };
 
     updateAA();
@@ -163,10 +164,7 @@ void run()
         auto imgDataF = imgData.map([](const agz::math::color4b &c)
         {
             return agz::math::vec4f(
-                c.r / 255.0f,
-                c.g / 255.0f,
-                c.b / 255.0f,
-                c.a / 255.0f);
+                c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, c.a / 255.0f);
         });
 
         img = Texture2DLoader().LoadFromMemory(
